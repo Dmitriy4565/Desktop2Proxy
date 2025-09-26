@@ -25,16 +25,15 @@ func NewScannerManager() *ScannerManager {
 			&WinRMScanner{UseHTTPS: true},
 			&RDPScanner{},
 			&TelnetScanner{},
-			&VNCScanner{}, // Новый VNC сканер
+			&VNCScanner{},
 
 			// Сетевые протоколы
 			&SNMPScanner{},
 
-			// TCP/UDP сканеры для популярных портов
+			// TCP сканеры для популярных портов
 			&TCPScanner{ProtocolName: "FTP", Port: 21},
 			&TCPScanner{ProtocolName: "SMTP", Port: 25},
-			&TCPScanner{ProtocolName: "DNS-TCP", Port: 53},
-			&UDPScanner{ProtocolName: "DNS-UDP", Port: 53},
+			&TCPScanner{ProtocolName: "DNS", Port: 53}, // Оставляем только TCP DNS
 			&TCPScanner{ProtocolName: "HTTP-Alt", Port: 8080},
 			&TCPScanner{ProtocolName: "HTTPS-Alt", Port: 8443},
 
