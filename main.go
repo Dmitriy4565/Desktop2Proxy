@@ -1,68 +1,66 @@
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "protocol-scanner/scanner"
+	"context"
+	"desktop2proxy/models"
+	"desktop2proxy/scanners"
+	"fmt"
 )
 
 func main() {
-    // Пример использования
-    target := Target{
-        IP:       "192.168.1.1",
-        Username: "admin", 
-        Password: "password",
-    }
+	target := models.Target{
+		IP:       "192.168.1.1",
+		Username: "admin",
+		Password: "password",
+	}
 
-    fmt.Printf("Сканируем хост %s...\n", target.IP)
-    
-    // Создаем менеджер сканеров
-    manager := scanner.NewScannerManager()
-    scanners := manager.GetAllScanners()
-    
-    fmt.Printf("Доступно сканеров: %d\n", len(scanners))
-    for _, s := range scanners {
-        fmt.Printf(" - %s (порт %d)\n", s.GetName(), s.GetDefaultPort())
-    }
-    
-    result := probeProtocols(target, scanners)
-    
-    if result != nil {
-        fmt.Printf("🎯 УСПЕХ! Протокол: %s, Порт: %d\n", result.Protocol, result.Port)
-        if result.Banner != "" {
-            fmt.Printf("   Доп. информация: %s\n", result.Banner)
-        }
-    } else {
-        fmt.Println("❌ Ни один протокол не подошел")
-    }
+	fmt.Printf("🔍 Сканируем хост %s...\n\n", target.IP)
+
+	manager := scanners.NewScannerManager()
+	allScanners := manager.GetAllScanners()
+
+	fmt.Printf("Доступно протоколов для проверки: %d\n", len(allScanners))
+	for _, scanner := range allScanners {
+		fmt.Printf(" - %s (порт %d)\n", scanner.GetName(), scanner.GetDefaultPort())
+	}
+	fmt.Println()
+
+	result := probeProtocols(target, allScanners)
+
+	if result != nil {
+		fmt.Printf("🎯 УСПЕХ! Найден рабочий протокол:\n")
+		fmt.Printf("   Протокол: %s\n", result.Protocol)
+		fmt.Printf("   Порт: %d\n", result.Port)
+		if result.Banner != "" {
+			fmt.Printf("   Информация: %s\n", result.Banner)
+		}
+	} else {
+		fmt.Println("❌ Ни один протокол не подошел")
+	}
 }
 
-func probeProtocols(target Target, scanners []scanner.Scanner) *ProbeResult {
-    ctx, cancel := context.WithCancel(context.Background())
-    defer cancel()
+func probeProtocols(target models.Target, scanners []scanners.Scanner) *models.ProbeResult {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-    resultChan := make(chan ProbeResult, len(scanners))
+	resultChan := make(chan models.ProbeResult, len(scanners))
 
-    // Запускаем все сканеры параллельно
-    for _, scanner := range scanners {
-        go func(s scanner.Scanner) {
-            port := s.GetDefaultPort()
-            result := s.CheckProtocol(ctx, target, port)
-            resultChan <- result
-        }(scanner)
-    }
+	for _, scanner := range scanners {
+		go func(s Scanner) {
+			result := s.CheckProtocol(ctx, target, s.GetDefaultPort())
+			resultChan <- result
+		}(scanner)
+	}
 
-    // Ждем результаты
-    for range scanners {
-        result := <-resultChan
-        if result.Success {
-            cancel() // Останавливаем остальные проверки
-            return &result
-        } else {
-            fmt.Printf("❌ %s:%d - %s\n", result.Protocol, result.Port, result.Error)
-        }
-    }
+	for range scanners {
+		result := <-resultChan
+		if result.Success {
+			cancel()
+			return &result
+		} else {
+			fmt.Printf("❌ %s:%d - %s\n", result.Protocol, result.Port, result.Error)
+		}
+	}
 
-    return nil
+	return nil
 }
