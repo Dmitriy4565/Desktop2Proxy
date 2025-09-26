@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"desktop2proxy/models"
 	"desktop2proxy/scanners"
 	"fmt"
@@ -25,7 +24,8 @@ func main() {
 	}
 	fmt.Println()
 
-	result := probeProtocols(target, allScanners)
+	// Используем метод из пакета scanners
+	result := scanners.ProbeProtocols(target, allScanners)
 
 	if result != nil {
 		fmt.Printf("🎯 УСПЕХ! Найден рабочий протокол:\n")
@@ -37,30 +37,4 @@ func main() {
 	} else {
 		fmt.Println("❌ Ни один протокол не подошел")
 	}
-}
-
-func probeProtocols(target models.Target, scanners []scanners.Scanner) *models.ProbeResult {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	resultChan := make(chan models.ProbeResult, len(scanners))
-
-	for _, scanner := range scanners {
-		go func(s Scanner) {
-			result := s.CheckProtocol(ctx, target, s.GetDefaultPort())
-			resultChan <- result
-		}(scanner)
-	}
-
-	for range scanners {
-		result := <-resultChan
-		if result.Success {
-			cancel()
-			return &result
-		} else {
-			fmt.Printf("❌ %s:%d - %s\n", result.Protocol, result.Port, result.Error)
-		}
-	}
-
-	return nil
 }

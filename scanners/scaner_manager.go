@@ -4,78 +4,67 @@ import (
 	"context"
 	"desktop2proxy/models"
 	"fmt"
-	"io"
-	"time"
-
-	"github.com/masterzen/winrm"
 )
 
-type WinRMScanner struct {
-	UseHTTPS bool
+// ScannerManager управляет всеми сканерами
+type ScannerManager struct {
+	scanners []Scanner
 }
 
-func (s *WinRMScanner) GetName() string {
-	if s.UseHTTPS {
-		return "WinRM-HTTPS"
+// NewScannerManager создает менеджер со всеми доступными сканерами
+func NewScannerManager() *ScannerManager {
+	return &ScannerManager{
+		scanners: []Scanner{
+			&SSHScanner{},
+			&TelnetScanner{},
+			&HTTPScanner{Protocol: "HTTP"},
+			&HTTPScanner{Protocol: "HTTPS"},
+			&SNMPScanner{},
+			&WinRMScanner{UseHTTPS: false},
+			&WinRMScanner{UseHTTPS: true},
+			&RDPScanner{},
+		},
 	}
-	return "WinRM-HTTP"
 }
 
-func (s *WinRMScanner) GetDefaultPort() int {
-	if s.UseHTTPS {
-		return 5986
-	}
-	return 5985
+// GetAllScanners возвращает все зарегистрированные сканеры
+func (sm *ScannerManager) GetAllScanners() []Scanner {
+	return sm.scanners
 }
 
-func (s *WinRMScanner) CheckProtocol(ctx context.Context, target models.Target, port int) models.ProbeResult {
-	// Создаем endpoint
-	endpoint := &winrm.Endpoint{
-		Host:     target.IP,
-		Port:     port,
-		HTTPS:    s.UseHTTPS,
-		Insecure: true,
-		Timeout:  10 * time.Second,
+// GetScannerByName возвращает сканер по имени протокола
+func (sm *ScannerManager) GetScannerByName(name string) Scanner {
+	for _, scanner := range sm.scanners {
+		if scanner.GetName() == name {
+			return scanner
+		}
+	}
+	return nil
+}
+
+// ProbeProtocols проверяет все протоколы параллельно
+func ProbeProtocols(target models.Target, scanners []Scanner) *models.ProbeResult {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resultChan := make(chan models.ProbeResult, len(scanners))
+
+	for _, scanner := range scanners {
+		go func(s Scanner) {
+			result := s.CheckProtocol(ctx, target, s.GetDefaultPort())
+			resultChan <- result
+		}(scanner)
 	}
 
-	// Создаем клиент
-	client, err := winrm.NewClient(endpoint, target.Username, target.Password)
-	if err != nil {
-		return models.ProbeResult{
-			Protocol: s.GetName(),
-			Port:     port,
-			Success:  false,
-			Error:    fmt.Sprintf("WinRM client creation failed: %v", err),
+	for range scanners {
+		result := <-resultChan
+		if result.Success {
+			cancel()
+			return &result
+		} else {
+			fmt.Printf("❌ %s:%d - %s\n", result.Protocol, result.Port, result.Error)
 		}
 	}
 
-	// Пробуем выполнить команду
-	cmd := "echo WinRM-test-success"
-	exitCode, err := client.RunWithContext(ctx, cmd, io.Discard, io.Discard)
-
-	if err != nil {
-		return models.ProbeResult{
-			Protocol: s.GetName(),
-			Port:     port,
-			Success:  false,
-			Error:    fmt.Sprintf("WinRM connection failed: %v", err),
-		}
-	}
-
-	// Exit code 0 обычно означает успех
-	if exitCode == 0 {
-		return models.ProbeResult{
-			Protocol: s.GetName(),
-			Port:     port,
-			Success:  true,
-			Banner:   "WinRM accessible - command executed successfully",
-		}
-	}
-
-	return models.ProbeResult{
-		Protocol: s.GetName(),
-		Port:     port,
-		Success:  false,
-		Error:    fmt.Sprintf("Command exited with code: %d", exitCode),
-	}
+	return nil
 }
