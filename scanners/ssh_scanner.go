@@ -27,7 +27,7 @@ func (s *SSHScanner) CheckProtocol(ctx context.Context, target models.Target, po
 			ssh.Password(target.Password),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         5 * time.Second,
+		Timeout:         2 * time.Second, // Укороченный таймаут
 	}
 
 	address := net.JoinHostPort(target.IP, strconv.Itoa(port))

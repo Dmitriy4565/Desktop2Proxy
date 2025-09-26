@@ -3,7 +3,6 @@ package scanners
 import (
 	"context"
 	"desktop2proxy/models"
-	"fmt"
 )
 
 // ScannerManager управляет всеми сканерами
@@ -15,14 +14,15 @@ type ScannerManager struct {
 func NewScannerManager() *ScannerManager {
 	return &ScannerManager{
 		scanners: []Scanner{
-			&SSHScanner{},
-			&TelnetScanner{},
+			// Реальные сканеры
 			&HTTPScanner{Protocol: "HTTP"},
 			&HTTPScanner{Protocol: "HTTPS"},
-			&SNMPScanner{},
+			&SSHScanner{},
 			&WinRMScanner{UseHTTPS: false},
 			&WinRMScanner{UseHTTPS: true},
 			&RDPScanner{},
+			&TelnetScanner{},
+			&SNMPScanner{},
 		},
 	}
 }
@@ -42,13 +42,15 @@ func (sm *ScannerManager) GetScannerByName(name string) Scanner {
 	return nil
 }
 
-// ProbeProtocols проверяет все протоколы параллельно
-func ProbeProtocols(target models.Target, scanners []Scanner) *models.ProbeResult {
+// ProbeAllProtocols проверяет ВСЕ протоколы с указанными логином/паролем
+func ProbeAllProtocols(target models.Target, scanners []Scanner) []models.ProbeResult {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	resultChan := make(chan models.ProbeResult, len(scanners))
+	var successfulConnections []models.ProbeResult
 
+	// Параллельно проверяем все протоколы с ОДНИМИ логином/паролем
 	for _, scanner := range scanners {
 		go func(s Scanner) {
 			result := s.CheckProtocol(ctx, target, s.GetDefaultPort())
@@ -56,15 +58,13 @@ func ProbeProtocols(target models.Target, scanners []Scanner) *models.ProbeResul
 		}(scanner)
 	}
 
-	for range scanners {
+	// Собираем все успешные подключения
+	for i := 0; i < len(scanners); i++ {
 		result := <-resultChan
 		if result.Success {
-			cancel()
-			return &result
-		} else {
-			fmt.Printf("❌ %s:%d - %s\n", result.Protocol, result.Port, result.Error)
+			successfulConnections = append(successfulConnections, result)
 		}
 	}
 
-	return nil
+	return successfulConnections
 }

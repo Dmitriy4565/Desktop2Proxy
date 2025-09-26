@@ -37,7 +37,7 @@ func (s *WinRMScanner) CheckProtocol(ctx context.Context, target models.Target, 
 		nil,        // CA cert
 		nil,        // Client cert
 		nil,        // Client key
-		10*time.Second,
+		5*time.Second,
 	)
 
 	// Создаем клиент правильным способом

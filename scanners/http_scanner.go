@@ -24,21 +24,17 @@ func (s *HTTPScanner) GetDefaultPort() int {
 }
 
 func (s *HTTPScanner) CheckProtocol(ctx context.Context, target models.Target, port int) models.ProbeResult {
-	// Создаем HTTP клиент с таймаутом
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
 
-	// Определяем схему (http или https)
 	scheme := "http"
 	if s.Protocol == "HTTPS" {
 		scheme = "https"
 	}
 
-	// Формируем URL для проверки
 	url := fmt.Sprintf("%s://%s:%d", scheme, target.IP, port)
 
-	// Создаем запрос
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return models.ProbeResult{
@@ -49,12 +45,10 @@ func (s *HTTPScanner) CheckProtocol(ctx context.Context, target models.Target, p
 		}
 	}
 
-	// Добавляем базовую аутентификацию если указаны credentials
 	if target.Username != "" || target.Password != "" {
 		req.SetBasicAuth(target.Username, target.Password)
 	}
 
-	// Выполняем запрос
 	resp, err := client.Do(req)
 	if err != nil {
 		return models.ProbeResult{
@@ -66,7 +60,6 @@ func (s *HTTPScanner) CheckProtocol(ctx context.Context, target models.Target, p
 	}
 	defer resp.Body.Close()
 
-	// Проверяем статус код
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 		banner := fmt.Sprintf("Status: %s, Server: %s", resp.Status, resp.Header.Get("Server"))
 		return models.ProbeResult{
