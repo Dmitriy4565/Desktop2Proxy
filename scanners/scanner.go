@@ -15,19 +15,14 @@ type BaseScanner struct {
 	DefaultPort int
 }
 
-// TCPScanner общая логика для TCP-сканеров
-type TCPScanner struct {
-	BaseScanner
-}
-
 // CheckTCPConnection общая функция проверки TCP соединения
-func (s *TCPScanner) CheckTCPConnection(target models.Target, port int, timeout time.Duration) (net.Conn, error) {
+func (s *BaseScanner) CheckTCPConnection(target models.Target, port int, timeout time.Duration) (net.Conn, error) {
 	address := net.JoinHostPort(target.IP, strconv.Itoa(port))
 	return net.DialTimeout("tcp", address, timeout)
 }
 
 // ReadBanner читает баннер из соединения
-func (s *TCPScanner) ReadBanner(conn net.Conn, timeout time.Duration) (string, error) {
+func (s *BaseScanner) ReadBanner(conn net.Conn, timeout time.Duration) (string, error) {
 	banner := make([]byte, 1024)
 	conn.SetReadDeadline(time.Now().Add(timeout))
 	n, err := conn.Read(banner)

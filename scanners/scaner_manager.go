@@ -3,6 +3,7 @@ package scanners
 import (
 	"context"
 	"desktop2proxy/models"
+	"time"
 )
 
 // ScannerManager управляет всеми сканерами
@@ -14,15 +15,34 @@ type ScannerManager struct {
 func NewScannerManager() *ScannerManager {
 	return &ScannerManager{
 		scanners: []Scanner{
-			// Реальные сканеры
+			// Веб-протоколы
 			&HTTPScanner{Protocol: "HTTP"},
 			&HTTPScanner{Protocol: "HTTPS"},
+
+			// Удаленное управление
 			&SSHScanner{},
 			&WinRMScanner{UseHTTPS: false},
 			&WinRMScanner{UseHTTPS: true},
 			&RDPScanner{},
 			&TelnetScanner{},
+			&VNCScanner{}, // Новый VNC сканер
+
+			// Сетевые протоколы
 			&SNMPScanner{},
+
+			// TCP/UDP сканеры для популярных портов
+			&TCPScanner{ProtocolName: "FTP", Port: 21},
+			&TCPScanner{ProtocolName: "SMTP", Port: 25},
+			&TCPScanner{ProtocolName: "DNS-TCP", Port: 53},
+			&UDPScanner{ProtocolName: "DNS-UDP", Port: 53},
+			&TCPScanner{ProtocolName: "HTTP-Alt", Port: 8080},
+			&TCPScanner{ProtocolName: "HTTPS-Alt", Port: 8443},
+
+			// Базы данных
+			&TCPScanner{ProtocolName: "MySQL", Port: 3306},
+			&TCPScanner{ProtocolName: "PostgreSQL", Port: 5432},
+			&TCPScanner{ProtocolName: "Redis", Port: 6379},
+			&TCPScanner{ProtocolName: "MongoDB", Port: 27017},
 		},
 	}
 }
@@ -43,22 +63,26 @@ func (sm *ScannerManager) GetScannerByName(name string) Scanner {
 }
 
 // ProbeAllProtocols проверяет ВСЕ протоколы с указанными логином/паролем
+// ProbeAllProtocols проверяет ВСЕ протоколы
 func ProbeAllProtocols(target models.Target, scanners []Scanner) []models.ProbeResult {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Увеличили до 60 секунд
 	defer cancel()
 
 	resultChan := make(chan models.ProbeResult, len(scanners))
 	var successfulConnections []models.ProbeResult
 
-	// Параллельно проверяем все протоколы с ОДНИМИ логином/паролем
+	// Запускаем все проверки параллельно с увеличенными таймаутами
 	for _, scanner := range scanners {
 		go func(s Scanner) {
-			result := s.CheckProtocol(ctx, target, s.GetDefaultPort())
+			// Для каждого сканера свой таймаут
+			scannerCtx, cancelScanner := context.WithTimeout(ctx, 15*time.Second) // Увеличили до 15 сек
+			defer cancelScanner()
+
+			result := s.CheckProtocol(scannerCtx, target, s.GetDefaultPort())
 			resultChan <- result
 		}(scanner)
 	}
 
-	// Собираем все успешные подключения
 	for i := 0; i < len(scanners); i++ {
 		result := <-resultChan
 		if result.Success {
