@@ -6,6 +6,8 @@ import (
 	"desktop2proxy/scanners"
 	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -21,7 +23,7 @@ func main() {
 
 func showWelcome() {
 	fmt.Println("🎯 =================================")
-	fmt.Println("🎯    Desktop2Proxy Auto Connect")
+	fmt.Println("🎯    Desktop2Proxy Linux Auto Connect")
 	fmt.Println("🎯 =================================")
 	fmt.Println()
 }
@@ -85,16 +87,16 @@ func runScanAndAutoConnect(target models.Target) {
 }
 
 func selectBestProtocol(results []models.ProbeResult) models.ProbeResult {
-	// Приоритет протоколов для автоматического подключения
+	// Приоритет протоколов для Linux
 	priority := map[string]int{
-		"SSH":         100,
-		"WinRM-HTTP":  90,
-		"WinRM-HTTPS": 90,
-		"Telnet":      80,
-		"HTTP":        70,
-		"HTTPS":       70,
-		"RDP":         60,
-		"VNC":         50,
+		"SSH":         100, // Лучший - нативная консоль
+		"Telnet":      90,  // Консольный доступ
+		"VNC":         80,  // Графический Linux
+		"RDP":         70,  // Графический Windows
+		"HTTP":        60,  // Веб-интерфейсы
+		"HTTPS":       60,
+		"WinRM-HTTP":  50, // Windows management
+		"WinRM-HTTPS": 50,
 	}
 
 	var bestResult models.ProbeResult
@@ -118,8 +120,6 @@ func autoConnectToProtocol(target models.Target, result models.ProbeResult) {
 	switch result.Protocol {
 	case "SSH":
 		startSSHAutoConnect(target, result.Port)
-	case "WinRM-HTTP", "WinRM-HTTPS":
-		startWinRMAutoConnect(target, result.Port)
 	case "Telnet":
 		startTelnetAutoConnect(target, result.Port)
 	case "HTTP", "HTTPS":
@@ -128,71 +128,198 @@ func autoConnectToProtocol(target models.Target, result models.ProbeResult) {
 		startRDPAutoConnect(target, result.Port)
 	case "VNC":
 		startVNCAutoConnect(target, result.Port)
+	case "WinRM-HTTP", "WinRM-HTTPS":
+		startWinRMAutoConnect(target, result.Port)
 	default:
 		fmt.Printf("❌ Автоподключение для %s не реализовано\n", result.Protocol)
 		showManualInstructions(target, result)
 	}
 }
 
-// Заглушки для авто-подключения (реализуем постепенно)
+// РЕАЛЬНОЕ SSH ПОДКЛЮЧЕНИЕ
 func startSSHAutoConnect(target models.Target, port int) {
-	fmt.Println("🔐 Устанавливаем SSH соединение...")
-	fmt.Println("💡 SSH автоподключение в разработке")
-	fmt.Printf("📝 Команда для ручного подключения: ssh %s@%s -p %d\n",
-		target.Username, target.IP, port)
-	waitForExit()
+	fmt.Printf("🔐 Подключаемся к SSH %s@%s:%d...\n", target.Username, target.IP, port)
+
+	// Проверяем установлен ли SSH
+	if !commandExists("ssh") {
+		fmt.Println("❌ SSH клиент не установлен. Установите: sudo apt install openssh-client")
+		waitForExit()
+		return
+	}
+
+	// Строим команду SSH
+	sshArgs := []string{
+		fmt.Sprintf("%s@%s", target.Username, target.IP),
+		"-p", strconv.Itoa(port),
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+	}
+
+	// Если пароль пустой, пробуем подключиться без него
+	if target.Password == "" {
+		sshArgs = append(sshArgs, "-o", "BatchMode=yes")
+	}
+
+	fmt.Println("✅ Запускаем SSH сессию...")
+	fmt.Println("💡 Для выхода используйте Ctrl+D или введите 'exit'")
+
+	cmd := exec.Command("ssh", sshArgs...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("❌ Ошибка SSH: %v\n", err)
+		if target.Password != "" {
+			fmt.Println("💡 Попробуйте ввести пароль вручную при запросе")
+		}
+	}
 }
 
-func startWinRMAutoConnect(target models.Target, port int) {
-	fmt.Println("🪟 Подключаемся к Windows через WinRM...")
-	fmt.Println("💡 WinRM автоподключение в разработке")
-	waitForExit()
-}
-
+// РЕАЛЬНОЕ TELNET ПОДКЛЮЧЕНИЕ
 func startTelnetAutoConnect(target models.Target, port int) {
-	fmt.Println("📟 Подключаемся через Telnet...")
-	fmt.Println("💡 Telnet автоподключение в разработке")
-	fmt.Printf("📝 Команда для ручного подключения: telnet %s %d\n", target.IP, port)
-	waitForExit()
+	fmt.Printf("📟 Подключаемся к Telnet %s:%d...\n", target.IP, port)
+
+	if !commandExists("telnet") {
+		fmt.Println("❌ Telnet клиент не установлен. Установите: sudo apt install telnet")
+		waitForExit()
+		return
+	}
+
+	fmt.Println("✅ Запускаем Telnet сессию...")
+	fmt.Println("💡 Для выхода используйте Ctrl+] затем введите 'quit'")
+
+	cmd := exec.Command("telnet", target.IP, strconv.Itoa(port))
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("❌ Ошибка Telnet: %v\n", err)
+	}
 }
 
+// РЕАЛЬНОЕ ОТКРЫТИЕ БРАУЗЕРА
 func openBrowserAuto(target models.Target, result models.ProbeResult) {
 	scheme := "http"
 	if result.Protocol == "HTTPS" {
 		scheme = "https"
 	}
 	url := fmt.Sprintf("%s://%s:%d", scheme, target.IP, result.Port)
+
 	fmt.Printf("🌐 Открываем браузер: %s\n", url)
 
-	// Попытка автоматического открытия браузера
-	if err := openBrowser(url); err != nil {
-		fmt.Printf("❌ Не удалось открыть браузер автоматически\n")
-		fmt.Printf("🔗 Откройте вручную: %s\n", url)
+	var cmd *exec.Cmd
+
+	// Пробуем разные способы открытия браузера
+	if commandExists("xdg-open") {
+		cmd = exec.Command("xdg-open", url)
+	} else if commandExists("firefox") {
+		cmd = exec.Command("firefox", url)
+	} else if commandExists("chromium-browser") {
+		cmd = exec.Command("chromium-browser", url)
+	} else if commandExists("google-chrome") {
+		cmd = exec.Command("google-chrome", url)
+	} else {
+		fmt.Printf("❌ Не найден браузер. Откройте вручную: %s\n", url)
+		waitForExit()
+		return
 	}
+
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("❌ Ошибка открытия браузера: %v\n", err)
+		fmt.Printf("🔗 Откройте вручную: %s\n", url)
+	} else {
+		fmt.Println("✅ Браузер запущен")
+	}
+
 	waitForExit()
 }
 
+// RDP ПОДКЛЮЧЕНИЕ Через Remmina
 func startRDPAutoConnect(target models.Target, port int) {
-	fmt.Println("🖥️ Запускаем Remote Desktop...")
-	fmt.Printf("🔑 Настройки RDP:\n")
-	fmt.Printf("   Адрес: %s:%d\n", target.IP, port)
-	fmt.Printf("   Логин: %s\n", target.Username)
-	fmt.Printf("   Пароль: %s\n", target.Password)
-	fmt.Println("💡 Запустите 'mstsc' и введите данные выше")
+	fmt.Printf("🖥️ Подключаемся к RDP %s:%d...\n", target.IP, port)
+
+	if !commandExists("remmina") {
+		fmt.Println("❌ Remmina не установлен. Установите: sudo apt install remmina")
+		waitForExit()
+		return
+	}
+
+	// Создаем временный профиль Remmina
+	profileContent := fmt.Sprintf(`[remmina]
+name=%s
+protocol=RDP
+server=%s
+port=%d
+username=%s
+password=%s
+`, target.IP, target.IP, port, target.Username, target.Password)
+
+	profileFile := "/tmp/remmina_temp.remmina"
+	if err := os.WriteFile(profileFile, []byte(profileContent), 0644); err != nil {
+		fmt.Printf("❌ Ошибка создания профиля: %v\n", err)
+		waitForExit()
+		return
+	}
+	defer os.Remove(profileFile)
+
+	fmt.Println("✅ Запускаем Remmina...")
+	cmd := exec.Command("remmina", "-c", profileFile)
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("❌ Ошибка запуска Remmina: %v\n", err)
+	} else {
+		fmt.Println("✅ RDP подключение установлено")
+	}
+
 	waitForExit()
 }
 
+// VNC ПОДКЛЮЧЕНИЕ
 func startVNCAutoConnect(target models.Target, port int) {
-	fmt.Println("👁️ Подключаемся через VNC...")
-	fmt.Printf("🔑 Настройки VNC:\n")
-	fmt.Printf("   Адрес: %s:%d\n", target.IP, port)
-	fmt.Printf("   Пароль: %s\n", target.Password)
+	fmt.Printf("👁️ Подключаемся к VNC %s:%d...\n", target.IP, port)
+
+	// Пробуем разные VNC клиенты
+	var cmd *exec.Cmd
+
+	if commandExists("vinagre") {
+		vncUrl := fmt.Sprintf("vnc://%s:%d", target.IP, port)
+		if target.Password != "" {
+			vncUrl = fmt.Sprintf("vnc://%s@%s:%d", target.Password, target.IP, port)
+		}
+		cmd = exec.Command("vinagre", vncUrl)
+	} else if commandExists("remmina") {
+		vncUrl := fmt.Sprintf("vnc://%s:%d", target.IP, port)
+		cmd = exec.Command("remmina", "-c", vncUrl)
+	} else {
+		fmt.Println("❌ VNC клиент не найден. Установите: sudo apt install vinagre")
+		waitForExit()
+		return
+	}
+
+	fmt.Println("✅ Запускаем VNC клиент...")
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("❌ Ошибка запуска VNC: %v\n", err)
+	} else {
+		fmt.Println("✅ VNC подключение установлено")
+	}
+
 	waitForExit()
 }
 
-func openBrowser(url string) error {
-	// Базовая реализация открытия браузера
-	return fmt.Errorf("авто-открытие браузера не реализовано")
+// WinRM ПОДКЛЮЧЕНИЕ (через wine или native go)
+func startWinRMAutoConnect(target models.Target, port int) {
+	fmt.Printf("🪟 Подключаемся к WinRM %s:%d...\n", target.IP, port)
+	fmt.Println("💡 WinRM подключение требует дополнительных настроек")
+	fmt.Printf("📝 Используйте: winrs -r:https://%s:%d -u:%s -p:%s\n",
+		target.IP, port, target.Username, target.Password)
+	waitForExit()
+}
+
+// УТИЛИТА: Проверка существования команды
+func commandExists(cmd string) bool {
+	_, err := exec.LookPath(cmd)
+	return err == nil
 }
 
 func showManualInstructions(target models.Target, result models.ProbeResult) {
