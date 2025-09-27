@@ -10,23 +10,17 @@ import (
 	"strings"
 )
 
-// Функция проверки существования команды
-func CommandExists(cmd string) bool {
-	_, err := exec.LookPath(cmd)
-	return err == nil
-}
-
 // Функция для поиска доступного RDP клиента (оптимизирована для Ubuntu)
 func findRDPClient() string {
-	// На Ubuntu приоритет: remmina -> freerdp -> rdesktop
+	// На Ubuntu приоритет: rdesktop для простых, remmina для двухфакторки
 	rdpClients := []string{
-		"remmina",  // Лучший - поддерживает CredSSP
-		"xfreerdp", // FreeRDP (стабильная версия)
-		"freerdp",  // Альтернативное имя
-		"rdesktop", // Базовый (для простых серверов)
+		"rdesktop", // Основной для простых серверов
+		"remmina",  // Для двухфакторки и CredSSP
+		"xfreerdp", // Альтернатива
+		"freerdp",  // Альтернатива
+		"/usr/bin/rdesktop",
 		"/usr/bin/remmina",
 		"/usr/bin/xfreerdp",
-		"/usr/bin/rdesktop",
 	}
 
 	for _, client := range rdpClients {
@@ -67,21 +61,25 @@ password:s:%s
 		// LINUX ВЕРСИЯ - проверяем все возможные RDP клиенты
 		rdpClient := findRDPClient()
 		if rdpClient == "" {
-			return fmt.Errorf("❌ RDP клиент не найден. Установите: sudo apt install remmina remmina-plugin-rdp")
+			return fmt.Errorf("❌ RDP клиент не найден. Установите: sudo apt install rdesktop remmina remmina-plugin-rdp")
 		}
 
 		fmt.Printf("💡 Используем %s...\n", rdpClient)
 
 		// Аргументы в зависимости от клиента
 		if strings.Contains(rdpClient, "remmina") {
-			// Remmina для Ubuntu - современный клиент
-			cmd = exec.Command("remmina",
-				"-c", fmt.Sprintf("rdp://%s:%d", target.IP, port),
-				"-u", target.Username,
-				"-p", target.Password)
+			// Remmina для двухфакторки и CredSSP
+			fmt.Println("🔐 Запускаем Remmina для двухфакторной аутентификации...")
+			fmt.Println("💡 Remmina откроет GUI - настройте подключение вручную")
+			fmt.Printf("💡 Сервер: %s:%d\n", target.IP, port)
+			fmt.Printf("💡 Логин: %s\n", target.Username)
+			fmt.Printf("💡 Пароль: %s\n", "***")
+
+			// Запускаем remmina в GUI режиме
+			cmd = exec.Command("remmina")
 
 		} else if strings.Contains(rdpClient, "freerdp") {
-			// FreeRDP аргументы для Ubuntu
+			// FreeRDP аргументы
 			args := []string{
 				"/v:" + target.IP + ":" + strconv.Itoa(port),
 				"/u:" + target.Username,
@@ -92,9 +90,12 @@ password:s:%s
 			}
 			cmd = exec.Command(rdpClient, args...)
 
-		} else if strings.Contains(rdpClient, "rdesktop") {
-			fmt.Println("🔐 RDesktop - вводите данные интерактивно")
-			fmt.Println("💡 Если запросит: 1. 'yes' для сертификата 2. Пароль двухфакторки")
+		} else {
+			// rdesktop для простых серверов (основной вариант)
+			fmt.Println("🔐 Запускаем rdesktop...")
+			fmt.Println("💡 Если сервер запросит:")
+			fmt.Println("   1. Введите 'yes' для принятия сертификата")
+			fmt.Println("   2. Введите пароль двухфакторки когда запросит")
 
 			cmd = exec.Command(rdpClient,
 				target.IP+":"+strconv.Itoa(port),
@@ -102,7 +103,9 @@ password:s:%s
 				"-p", target.Password,
 				"-g", "1024x768",
 				"-a", "16",
-				"-k", "en-us")
+				"-k", "en-us",
+				"-z",      // Сжатие
+				"-x", "l") // Качество LAN
 		}
 
 	case "darwin":
@@ -129,4 +132,27 @@ password:s:%s
 
 	fmt.Println("✅ RDP сессия завершена")
 	return nil
+}
+
+// Отдельная функция для серверов с двухфакторкой
+func ConnectRDPWith2FA(target models.Target, port int) error {
+	fmt.Println("🔐 Подключение с двухфакторной аутентификацией")
+
+	if !CommandExists("remmina") {
+		return fmt.Errorf("❌ Для двухфакторки требуется Remmina. Установите: sudo apt install remmina remmina-plugin-rdp")
+	}
+
+	fmt.Println("🖥️ Запускаем Remmina GUI...")
+	fmt.Println("📝 Настройте подключение вручную:")
+	fmt.Printf("   Сервер: %s:%d\n", target.IP, port)
+	fmt.Printf("   Логин: %s\n", target.Username)
+	fmt.Printf("   Пароль: %s\n", "***")
+	fmt.Println("💡 Remmina поддерживает двухфакторку и современную аутентификацию")
+
+	cmd := exec.Command("remmina")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return cmd.Run()
 }
