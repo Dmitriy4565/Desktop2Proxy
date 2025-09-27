@@ -125,8 +125,17 @@ func autoConnectToProtocol(target models.Target, result models.ProbeResult) {
 	case "HTTP", "HTTPS":
 		openBrowserAuto(target, result)
 	case "RDP":
-		if err := scanners.ConnectRDP(target, result.Port); err != nil {
-			fmt.Printf("❌ Ошибка RDP: %v\n", err)
+		// Разделяем серверы: обычные и двухфакторные
+		if target.IP == "198.18.200.225" {
+			// Сервер с двухфакторкой
+			if err := scanners.ConnectRDPWith2FA(target, result.Port); err != nil {
+				fmt.Printf("❌ Ошибка RDP: %v\n", err)
+			}
+		} else {
+			// Обычные серверы
+			if err := scanners.ConnectRDP(target, result.Port); err != nil {
+				fmt.Printf("❌ Ошибка RDP: %v\n", err)
+			}
 		}
 	case "VNC":
 		if err := scanners.ConnectVNC(target, result.Port); err != nil {
