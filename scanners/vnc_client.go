@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 )
 
 func ConnectVNC(target models.Target, port int) error {
@@ -15,59 +16,60 @@ func ConnectVNC(target models.Target, port int) error {
 
 	switch runtime.GOOS {
 	case "windows":
-		// Windows версия - TigerVNC или встроенный
+		// Windows версия - TigerVNC
 		if CommandExists("vncviewer") {
+			// Простой вызов без лишних опций
 			cmd = exec.Command("vncviewer",
-				fmt.Sprintf("%s:%d", target.IP, port),
-				"-password", target.Password)
+				fmt.Sprintf("%s:%d", target.IP, port))
 		} else {
 			return fmt.Errorf("❌ Установите TigerVNC или используйте RDP")
 		}
 
 	case "linux":
-		// LINUX ВЕРСИЯ - используем только TigerVNC
+		// LINUX ВЕРСИЯ - TigerVNC с правильными опциями
 		if CommandExists("vncviewer") {
 			fmt.Println("💡 Используем TigerVNC viewer...")
 
-			if target.Password != "" {
-				// Создаем временный файл с паролем для безопасности
-				passFile := "/tmp/vncpasswd_tiger"
-				if err := os.WriteFile(passFile, []byte(target.Password), 0600); err != nil {
-					return fmt.Errorf("❌ Ошибка создания файла пароля: %v", err)
-				}
-				defer os.Remove(passFile)
-
-				// TigerVNC с паролем
-				cmd = exec.Command("vncviewer",
-					fmt.Sprintf("%s:%d", target.IP, port),
-					"-passwd", passFile,
-					"-quality", "9", // Качество изображения
-					"-compresslevel", "6", // Сжатие
-					"-encodings", "tight") // Кодировка
-			} else {
-				// TigerVNC без пароля
-				cmd = exec.Command("vncviewer",
-					fmt.Sprintf("%s:%d", target.IP, port),
-					"-quality", "9",
-					"-compresslevel", "6",
-					"-encodings", "tight")
+			// Базовые аргументы TigerVNC
+			args := []string{
+				target.IP + ":" + strconv.Itoa(port),
 			}
 
+			// Добавляем опции которые поддерживаются
+			args = append(args,
+				"-PreferredEncoding", "Tight", // Кодировка
+				"-CompressLevel", "6", // Сжатие
+				"-QualityLevel", "9", // Качество (правильное имя опции)
+			)
+
+			cmd = exec.Command("vncviewer", args...)
+
+		} else if CommandExists("vinagre") {
+			// Альтернатива - Vinagre
+			fmt.Println("💡 Используем Vinagre...")
+			cmd = exec.Command("vinagre",
+				"vnc://"+target.IP+":"+strconv.Itoa(port))
+
+		} else if CommandExists("remmina") {
+			// Remmina для VNC
+			fmt.Println("💡 Используем Remmina...")
+			cmd = exec.Command("remmina",
+				"-c", "vnc://"+target.IP+":"+strconv.Itoa(port))
+
 		} else {
-			return fmt.Errorf("❌ TigerVNC не найден. Установите: sudo pacman -S tigervnc")
+			return fmt.Errorf("❌ VNC клиент не найден. Установите: sudo pacman -S tigervnc")
 		}
 
 	case "darwin":
-		// macOS версия - Screen Sharing или TigerVNC
+		// macOS версия
 		if CommandExists("open") {
-			// Пробуем встроенный Screen Sharing
+			// Встроенный Screen Sharing
 			vncUrl := fmt.Sprintf("vnc://%s:%d", target.IP, port)
 			cmd = exec.Command("open", vncUrl)
 		} else if CommandExists("vncviewer") {
 			// TigerVNC для macOS
 			cmd = exec.Command("vncviewer",
-				fmt.Sprintf("%s:%d", target.IP, port),
-				"-password", target.Password)
+				fmt.Sprintf("%s:%d", target.IP, port))
 		} else {
 			return fmt.Errorf("❌ Используйте Screen Sharing или установите TigerVNC")
 		}
@@ -76,26 +78,26 @@ func ConnectVNC(target models.Target, port int) error {
 		return fmt.Errorf("❌ Неподдерживаемая ОС: %s", runtime.GOOS)
 	}
 
-	fmt.Printf("🚀 Запускаем TigerVNC...\n")
+	fmt.Printf("🚀 Запускаем VNC клиент...\n")
 	fmt.Printf("🔗 Адрес: %s:%d\n", target.IP, port)
 	if target.Password != "" {
-		fmt.Printf("🔑 Пароль: %s\n", "***")
+		fmt.Printf("🔑 Пароль будет запрошен VNC клиентом\n")
 	}
 
-	// Подключаем стандартные потоки для интерактивного режима
+	// Подключаем стандартные потоки
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("❌ Ошибка запуска TigerVNC: %v\n💡 Проверьте подключение и пароль", err)
+		return fmt.Errorf("❌ Ошибка VNC: %v", err)
 	}
 
-	fmt.Println("✅ TigerVNC сессия завершена")
+	fmt.Println("✅ VNC сессия завершена")
 	return nil
 }
 
-// Простая альтернатива без пароля (для быстрого теста)
+// Упрощенная версия без сложных опций
 func ConnectVNCQuick(target models.Target, port int) error {
 	fmt.Printf("👁️ Быстрое подключение к VNC %s:%d...\n", target.IP, port)
 
@@ -103,11 +105,12 @@ func ConnectVNCQuick(target models.Target, port int) error {
 		return fmt.Errorf("❌ TigerVNC не установлен")
 	}
 
-	cmd := exec.Command("vncviewer", fmt.Sprintf("%s:%d", target.IP, port))
+	// Самый простой вызов - только адрес
+	cmd := exec.Command("vncviewer", target.IP+":"+strconv.Itoa(port))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	fmt.Println("💡 Запускаем TigerVNC (без пароля)...")
+	fmt.Println("💡 Запускаем TigerVNC...")
 	return cmd.Run()
 }
