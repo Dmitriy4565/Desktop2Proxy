@@ -10,6 +10,34 @@ import (
 	"strings"
 )
 
+// Функция проверки существования команды
+func CommandExists(cmd string) bool {
+	_, err := exec.LookPath(cmd)
+	return err == nil
+}
+
+// Функция для поиска доступного RDP клиента (оптимизирована для Ubuntu)
+func findRDPClient() string {
+	// На Ubuntu приоритет: remmina -> freerdp -> rdesktop
+	rdpClients := []string{
+		"remmina",  // Лучший - поддерживает CredSSP
+		"xfreerdp", // FreeRDP (стабильная версия)
+		"freerdp",  // Альтернативное имя
+		"rdesktop", // Базовый (для простых серверов)
+		"/usr/bin/remmina",
+		"/usr/bin/xfreerdp",
+		"/usr/bin/rdesktop",
+	}
+
+	for _, client := range rdpClients {
+		if CommandExists(client) {
+			fmt.Printf("✅ Найден RDP клиент: %s\n", client)
+			return client
+		}
+	}
+	return ""
+}
+
 func ConnectRDP(target models.Target, port int) error {
 	fmt.Printf("🖥️ Подключаемся к RDP %s:%d...\n", target.IP, port)
 
@@ -39,45 +67,42 @@ password:s:%s
 		// LINUX ВЕРСИЯ - проверяем все возможные RDP клиенты
 		rdpClient := findRDPClient()
 		if rdpClient == "" {
-			return fmt.Errorf("❌ RDP клиент не найден. Установите: sudo pacman -S freerdp или sudo pacman -S rdesktop")
+			return fmt.Errorf("❌ RDP клиент не найден. Установите: sudo apt install remmina remmina-plugin-rdp")
 		}
 
 		fmt.Printf("💡 Используем %s...\n", rdpClient)
 
 		// Аргументы в зависимости от клиента
-		if strings.Contains(rdpClient, "freerdp") {
-			// FreeRDP аргументы
+		if strings.Contains(rdpClient, "remmina") {
+			// Remmina для Ubuntu - современный клиент
+			cmd = exec.Command("remmina",
+				"-c", fmt.Sprintf("rdp://%s:%d", target.IP, port),
+				"-u", target.Username,
+				"-p", target.Password)
+
+		} else if strings.Contains(rdpClient, "freerdp") {
+			// FreeRDP аргументы для Ubuntu
 			args := []string{
 				"/v:" + target.IP + ":" + strconv.Itoa(port),
 				"/u:" + target.Username,
 				"/p:" + target.Password,
 				"/cert-ignore",
 				"+compression",
-				"/gfx-h264",
-				"/dynamic-resolution",
+				"/gdi:sw",
 			}
-
-			if strings.Contains(rdpClient, "3") {
-				args = append(args, "/gfx:RFX")
-			}
-
 			cmd = exec.Command(rdpClient, args...)
 
 		} else if strings.Contains(rdpClient, "rdesktop") {
-			// rdesktop аргументы
+			fmt.Println("🔐 RDesktop - вводите данные интерактивно")
+			fmt.Println("💡 Если запросит: 1. 'yes' для сертификата 2. Пароль двухфакторки")
+
 			cmd = exec.Command(rdpClient,
 				target.IP+":"+strconv.Itoa(port),
 				"-u", target.Username,
 				"-p", target.Password,
 				"-g", "1024x768",
 				"-a", "16",
-				"-k", "en-us",
-				"-z",      // Сжатие
-				"-x", "l", // LAN качество (лучше чем 'm')
-				"-P", // Кэширование битмапов
-				"-D", // Без decorations
-				"-N", // Синхронизация NumLock
-				"-C") // Использовать private colormap
+				"-k", "en-us")
 		}
 
 	case "darwin":
@@ -92,7 +117,6 @@ password:s:%s
 	}
 
 	fmt.Printf("🚀 Запускаем RDP клиент...\n")
-	fmt.Printf("🔑 Логин: %s, Пароль: %s\n", target.Username, "***")
 
 	// Подключаем стандартные потоки
 	cmd.Stdin = os.Stdin
@@ -100,31 +124,9 @@ password:s:%s
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("❌ Ошибка запуска RDP: %v\n💡 Проверьте подключение и учетные данные", err)
+		return fmt.Errorf("❌ Ошибка RDP: %v", err)
 	}
 
 	fmt.Println("✅ RDP сессия завершена")
 	return nil
-}
-
-// Функция для поиска доступного RDP клиента
-func findRDPClient() string {
-	// Список возможных RDP клиентов (приоритет по порядку)
-	rdpClients := []string{
-		// Ставим rdesktop на ПЕРВОЕ место - он точно работает!
-		"rdesktop",
-
-		// Потом уже пробуем FreeRDP варианты
-		"xfreerdp", "freerdp", "wlfreerdp",
-		"xfreerdp3", "wlfreerdp3", "freerdp3",
-		"/usr/bin/xfreerdp3", "/usr/bin/wlfreerdp3", "/usr/bin/freerdp3",
-	}
-
-	for _, client := range rdpClients {
-		if CommandExists(client) {
-			fmt.Printf("✅ Найден рабочий RDP клиент: %s\n", client)
-			return client
-		}
-	}
-	return ""
 }
