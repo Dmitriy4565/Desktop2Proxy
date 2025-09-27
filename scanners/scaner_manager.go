@@ -26,6 +26,7 @@ func NewScannerManager() *ScannerManager {
 			&RDPScanner{},
 			&TelnetScanner{},
 			&VNCScanner{},
+			&MikroTikScanner{}, // Добавляем MikroTik сканер
 
 			// Сетевые протоколы
 			&SNMPScanner{},
