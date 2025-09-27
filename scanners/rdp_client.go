@@ -7,27 +7,24 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 )
 
-func LaunchRDPConnection(target models.Target, port int) error {
+func ConnectRDP(target models.Target, port int) error {
 	fmt.Printf("🖥️ Подключаемся к RDP %s:%d...\n", target.IP, port)
 
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
 	case "windows":
-		// Windows версия (оставляем для совместимости)
+		// Windows версия - встроенный mstsc
 		rdpContent := fmt.Sprintf(`
 screen mode id:i:2
-use multimon:i:0
 desktopwidth:i:1024
 desktopheight:i:768
-session bpp:i:32
-winposstr:s:0,1,0,0,800,600
 full address:s:%s:%d
 username:s:%s
 password:s:%s
-authentication level:i:2
 `, target.IP, port, target.Username, target.Password)
 
 		tmpFile := "auto_connect.rdp"
@@ -39,69 +36,95 @@ authentication level:i:2
 		cmd = exec.Command("mstsc", tmpFile)
 
 	case "linux":
-		// LINUX ВЕРСИЯ - используем Remmina или FreeRDP
-		if commandExists("remmina") {
-			// Создаем временный профиль Remmina
-			profileContent := fmt.Sprintf(`[remmina]
-name=AutoRDP_%s
-protocol=RDP
-server=%s
-port=%d
-username=%s
-password=%s
-colordepth=32
-resolution=1024x768
-`, target.IP, target.IP, port, target.Username, target.Password)
+		// LINUX ВЕРСИЯ - проверяем все возможные RDP клиенты
+		rdpClient := findRDPClient()
+		if rdpClient == "" {
+			return fmt.Errorf("❌ RDP клиент не найден. Установите: sudo pacman -S freerdp или sudo pacman -S rdesktop")
+		}
 
-			profileFile := "/tmp/remmina_auto.remmina"
-			if err := os.WriteFile(profileFile, []byte(profileContent), 0644); err != nil {
-				return fmt.Errorf("❌ Ошибка создания профиля Remmina: %v", err)
+		fmt.Printf("💡 Используем %s...\n", rdpClient)
+
+		// Аргументы в зависимости от клиента
+		if strings.Contains(rdpClient, "freerdp") {
+			// FreeRDP аргументы
+			args := []string{
+				"/v:" + target.IP + ":" + strconv.Itoa(port),
+				"/u:" + target.Username,
+				"/p:" + target.Password,
+				"/cert-ignore",
+				"+compression",
+				"/gfx-h264",
+				"/dynamic-resolution",
 			}
-			defer os.Remove(profileFile)
 
-			cmd = exec.Command("remmina", "-c", profileFile)
+			if strings.Contains(rdpClient, "3") {
+				args = append(args, "/gfx:RFX")
+			}
 
-		} else if commandExists("xfreerdp") {
-			// Используем FreeRDP
-			cmd = exec.Command("xfreerdp",
-				"/v:"+target.IP+":"+strconv.Itoa(port),
-				"/u:"+target.Username,
-				"/p:"+target.Password,
-				"/gdi:sw",
-				"/compression",
-				"/rfx")
+			cmd = exec.Command(rdpClient, args...)
 
-		} else if commandExists("rdesktop") {
-			// Используем rdesktop (старая версия)
-			cmd = exec.Command("rdesktop",
+		} else if strings.Contains(rdpClient, "rdesktop") {
+			// rdesktop аргументы
+			cmd = exec.Command(rdpClient,
 				target.IP+":"+strconv.Itoa(port),
 				"-u", target.Username,
 				"-p", target.Password,
-				"-g", "1024x768")
-
-		} else {
-			return fmt.Errorf("❌ RDP клиент не найден. Установите: sudo apt install remmina")
+				"-g", "1024x768",
+				"-a", "16",
+				"-k", "en-us",
+				"-z",      // Сжатие
+				"-x", "l", // LAN качество (лучше чем 'm')
+				"-P", // Кэширование битмапов
+				"-D", // Без decorations
+				"-N", // Синхронизация NumLock
+				"-C") // Использовать private colormap
 		}
 
 	case "darwin":
-		// macOS версия
-		return fmt.Errorf("❌ RDP клиент для macOS не настроен. Используйте Microsoft Remote Desktop")
+		return fmt.Errorf("❌ Используйте Microsoft Remote Desktop для macOS")
 
 	default:
 		return fmt.Errorf("❌ Неподдерживаемая ОС: %s", runtime.GOOS)
 	}
 
-	fmt.Println("🚀 Запускаем RDP клиент...")
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("❌ Ошибка запуска RDP: %v\n💡 Проверьте установлен ли RDP клиент", err)
+	if cmd == nil {
+		return fmt.Errorf("❌ Не удалось создать команду RDP")
 	}
 
-	fmt.Println("✅ RDP клиент запущен. Закройте окно для завершения.")
-	return cmd.Wait()
+	fmt.Printf("🚀 Запускаем RDP клиент...\n")
+	fmt.Printf("🔑 Логин: %s, Пароль: %s\n", target.Username, "***")
+
+	// Подключаем стандартные потоки
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("❌ Ошибка запуска RDP: %v\n💡 Проверьте подключение и учетные данные", err)
+	}
+
+	fmt.Println("✅ RDP сессия завершена")
+	return nil
 }
 
-// Утилита для проверки существования команды
-func commandExists(cmd string) bool {
-	_, err := exec.LookPath(cmd)
-	return err == nil
+// Функция для поиска доступного RDP клиента
+func findRDPClient() string {
+	// Список возможных RDP клиентов (приоритет по порядку)
+	rdpClients := []string{
+		// Ставим rdesktop на ПЕРВОЕ место - он точно работает!
+		"rdesktop",
+
+		// Потом уже пробуем FreeRDP варианты
+		"xfreerdp", "freerdp", "wlfreerdp",
+		"xfreerdp3", "wlfreerdp3", "freerdp3",
+		"/usr/bin/xfreerdp3", "/usr/bin/wlfreerdp3", "/usr/bin/freerdp3",
+	}
+
+	for _, client := range rdpClients {
+		if CommandExists(client) {
+			fmt.Printf("✅ Найден рабочий RDP клиент: %s\n", client)
+			return client
+		}
+	}
+	return ""
 }

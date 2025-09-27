@@ -6,7 +6,6 @@ require (
 	github.com/gosnmp/gosnmp v1.42.1
 	github.com/masterzen/winrm v0.0.0-20250819055755-20c0798bc988
 	golang.org/x/crypto v0.42.0
-	golang.org/x/term v0.35.0
 )
 
 require (

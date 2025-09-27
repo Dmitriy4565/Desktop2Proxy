@@ -12,140 +12,102 @@ func ConnectVNC(target models.Target, port int) error {
 	fmt.Printf("👁️ Подключаемся к VNC %s:%d...\n", target.IP, port)
 
 	var cmd *exec.Cmd
-	var useRemmina bool
 
 	switch runtime.GOOS {
 	case "windows":
-		// Windows версия
-		if commandExists("vncviewer") {
+		// Windows версия - TigerVNC или встроенный
+		if CommandExists("vncviewer") {
 			cmd = exec.Command("vncviewer",
 				fmt.Sprintf("%s:%d", target.IP, port),
 				"-password", target.Password)
 		} else {
-			return fmt.Errorf("❌ Установите VNC клиент (TigerVNC, RealVNC)")
+			return fmt.Errorf("❌ Установите TigerVNC или используйте RDP")
 		}
 
 	case "linux":
-		// LINUX ВЕРСИЯ - приоритет Remmina, потом Vinagre, потом vncviewer
-		if commandExists("remmina") {
-			// Remmina поддерживает профили с паролями
-			profileContent := fmt.Sprintf(`[remmina]
-name=AutoVNC_%s
-protocol=VNC
-server=%s
-port=%d
-password=%s
-colordepth=32
-quality=9
-`, target.IP, target.IP, port, target.Password)
+		// LINUX ВЕРСИЯ - используем только TigerVNC
+		if CommandExists("vncviewer") {
+			fmt.Println("💡 Используем TigerVNC viewer...")
 
-			profileFile := "/tmp/remmina_vnc.remmina"
-			if err := os.WriteFile(profileFile, []byte(profileContent), 0644); err != nil {
-				return fmt.Errorf("❌ Ошибка создания профиля VNC: %v", err)
-			}
-			defer os.Remove(profileFile)
-
-			cmd = exec.Command("remmina", "-c", profileFile)
-			useRemmina = true
-
-		} else if commandExists("vinagre") {
-			// Vinagre с поддержкой пароля в URL
-			vncUrl := fmt.Sprintf("vnc://%s:%d", target.IP, port)
 			if target.Password != "" {
-				vncUrl = fmt.Sprintf("vnc://:%s@%s:%d", target.Password, target.IP, port)
-			}
-			cmd = exec.Command("vinagre", vncUrl)
-
-		} else if commandExists("vncviewer") {
-			// TigerVNC/RealVNC viewer
-			if target.Password != "" {
-				// Создаем временный файл с паролем
-				passFile := "/tmp/vncpasswd"
+				// Создаем временный файл с паролем для безопасности
+				passFile := "/tmp/vncpasswd_tiger"
 				if err := os.WriteFile(passFile, []byte(target.Password), 0600); err != nil {
 					return fmt.Errorf("❌ Ошибка создания файла пароля: %v", err)
 				}
 				defer os.Remove(passFile)
 
+				// TigerVNC с паролем
 				cmd = exec.Command("vncviewer",
 					fmt.Sprintf("%s:%d", target.IP, port),
-					"-passwd", passFile)
+					"-passwd", passFile,
+					"-quality", "9", // Качество изображения
+					"-compresslevel", "6", // Сжатие
+					"-encodings", "tight") // Кодировка
 			} else {
-				cmd = exec.Command("vncviewer", fmt.Sprintf("%s:%d", target.IP, port))
+				// TigerVNC без пароля
+				cmd = exec.Command("vncviewer",
+					fmt.Sprintf("%s:%d", target.IP, port),
+					"-quality", "9",
+					"-compresslevel", "6",
+					"-encodings", "tight")
 			}
 
-		} else if commandExists("xtightvncviewer") {
-			// Альтернативный VNC viewer
-			cmd = exec.Command("xtightvncviewer", fmt.Sprintf("%s:%d", target.IP, port))
-
 		} else {
-			return fmt.Errorf("❌ VNC клиент не найден. Установите: sudo apt install remmina vinagre tigervnc-viewer")
+			return fmt.Errorf("❌ TigerVNC не найден. Установите: sudo pacman -S tigervnc")
 		}
 
 	case "darwin":
-		// macOS версия
-		if commandExists("open") {
+		// macOS версия - Screen Sharing или TigerVNC
+		if CommandExists("open") {
+			// Пробуем встроенный Screen Sharing
 			vncUrl := fmt.Sprintf("vnc://%s:%d", target.IP, port)
 			cmd = exec.Command("open", vncUrl)
+		} else if CommandExists("vncviewer") {
+			// TigerVNC для macOS
+			cmd = exec.Command("vncviewer",
+				fmt.Sprintf("%s:%d", target.IP, port),
+				"-password", target.Password)
 		} else {
-			return fmt.Errorf("❌ Используйте Screen Sharing или VNC клиент для macOS")
+			return fmt.Errorf("❌ Используйте Screen Sharing или установите TigerVNC")
 		}
 
 	default:
 		return fmt.Errorf("❌ Неподдерживаемая ОС: %s", runtime.GOOS)
 	}
 
-	fmt.Printf("🚀 Запускаем VNC клиент...\n")
-
-	if useRemmina {
-		fmt.Println("💡 Используется Remmina (поддержка профилей)")
-	} else {
-		fmt.Printf("💡 Используется: %s\n", cmd.Path)
+	fmt.Printf("🚀 Запускаем TigerVNC...\n")
+	fmt.Printf("🔗 Адрес: %s:%d\n", target.IP, port)
+	if target.Password != "" {
+		fmt.Printf("🔑 Пароль: %s\n", "***")
 	}
 
-	if err := cmd.Start(); err != nil {
-		// Пробуем альтернативный клиент
-		fmt.Printf("⚠️ Ошибка запуска, пробуем альтернативный клиент...\n")
-		return startAlternativeVNC(target, port)
+	// Подключаем стандартные потоки для интерактивного режима
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("❌ Ошибка запуска TigerVNC: %v\n💡 Проверьте подключение и пароль", err)
 	}
 
-	fmt.Println("✅ VNC клиент запущен. Закройте окно для завершения.")
-
-	if useRemmina {
-		// Remmina не блокирует терминал, поэтому просто ждем завершения процесса
-		return cmd.Wait()
-	}
-
-	// Для других клиентов ждем завершения
-	return cmd.Wait()
+	fmt.Println("✅ TigerVNC сессия завершена")
+	return nil
 }
 
-func startAlternativeVNC(target models.Target, port int) error {
-	fmt.Println("🔄 Пробуем альтернативные VNC клиенты...")
+// Простая альтернатива без пароля (для быстрого теста)
+func ConnectVNCQuick(target models.Target, port int) error {
+	fmt.Printf("👁️ Быстрое подключение к VNC %s:%d...\n", target.IP, port)
 
-	// Простая попытка через remmina без профиля
-	if commandExists("remmina") {
-		vncUrl := fmt.Sprintf("vnc://%s:%d", target.IP, port)
-		cmd := exec.Command("remmina", "-c", vncUrl)
-		if err := cmd.Start(); err == nil {
-			fmt.Println("✅ Remmina запущен (без профиля)")
-			return nil
-		}
+	if !CommandExists("vncviewer") {
+		return fmt.Errorf("❌ TigerVNC не установлен")
 	}
 
-	// Попробуем простой vncviewer
-	if commandExists("vncviewer") {
-		cmd := exec.Command("vncviewer", fmt.Sprintf("%s:%d", target.IP, port))
-		if err := cmd.Start(); err == nil {
-			fmt.Println("✅ VNCViewer запущен")
-			return nil
-		}
-	}
+	cmd := exec.Command("vncviewer", fmt.Sprintf("%s:%d", target.IP, port))
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
-	return fmt.Errorf("❌ Не удалось запустить ни один VNC клиент")
-}
-
-// Утилита для проверки существования команды
-func commandExists(cmd string) bool {
-	_, err := exec.LookPath(cmd)
-	return err == nil
+	fmt.Println("💡 Запускаем TigerVNC (без пароля)...")
+	return cmd.Run()
 }

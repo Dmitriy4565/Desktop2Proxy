@@ -15,20 +15,26 @@ import (
 func ConnectTelnet(target models.Target, port int) error {
 	fmt.Printf("📟 Подключаемся к Telnet %s:%d...\n", target.IP, port)
 
-	// Вариант 1: Используем системный telnet клиент (лучше на Linux)
-	if commandExists("telnet") {
+	// Для Arch Linux проверяем оба возможных имени telnet
+	if CommandExists("telnet") || CommandExists("telnet.netkit") {
 		return startSystemTelnet(target, port)
 	}
 
-	// Вариант 2: Наша Go реализация (запасной вариант)
+	// Запасной вариант: наша Go реализация
 	return startGoTelnet(target, port)
 }
 
-// Используем системный telnet клиент - работает идеально на Linux
+// Остальной код без изменений...
 func startSystemTelnet(target models.Target, port int) error {
 	fmt.Println("💡 Используем системный telnet клиент...")
 
-	cmd := exec.Command("telnet", target.IP, strconv.Itoa(port))
+	// Определяем правильное имя команды для Arch Linux
+	telnetCmd := "telnet"
+	if !CommandExists("telnet") && CommandExists("telnet.netkit") {
+		telnetCmd = "telnet.netkit"
+	}
+
+	cmd := exec.Command(telnetCmd, target.IP, strconv.Itoa(port))
 
 	// Подключаем стандартные потоки
 	cmd.Stdin = os.Stdin
@@ -105,10 +111,4 @@ func startGoTelnet(target models.Target, port int) error {
 	<-done
 	fmt.Println("👋 Telnet сессия завершена")
 	return nil
-}
-
-// Утилита для проверки существования команды
-func commandExists(cmd string) bool {
-	_, err := exec.LookPath(cmd)
-	return err == nil
 }

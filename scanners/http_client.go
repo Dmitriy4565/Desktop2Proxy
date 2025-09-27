@@ -34,19 +34,19 @@ func OpenBrowser(target models.Target, result models.ProbeResult) error {
 
 	case "linux":
 		// LINUX: Пробуем разные способы открытия браузера
-		if commandExists("xdg-open") {
+		if CommandExists("xdg-open") {
 			cmd = exec.Command("xdg-open", url)
 			browserName = "браузер по умолчанию (xdg-open)"
-		} else if commandExists("firefox") {
+		} else if CommandExists("firefox") {
 			cmd = exec.Command("firefox", url)
 			browserName = "Firefox"
-		} else if commandExists("chromium-browser") {
+		} else if CommandExists("chromium-browser") {
 			cmd = exec.Command("chromium-browser", url)
 			browserName = "Chromium"
-		} else if commandExists("google-chrome") {
+		} else if CommandExists("google-chrome") {
 			cmd = exec.Command("google-chrome", url)
 			browserName = "Google Chrome"
-		} else if commandExists("opera") {
+		} else if CommandExists("opera") {
 			cmd = exec.Command("opera", url)
 			browserName = "Opera"
 		} else {
@@ -86,9 +86,9 @@ func OpenURL(url string) error {
 
 	switch runtime.GOOS {
 	case "linux":
-		if commandExists("xdg-open") {
+		if CommandExists("xdg-open") {
 			cmd = exec.Command("xdg-open", url)
-		} else if commandExists("firefox") {
+		} else if CommandExists("firefox") {
 			cmd = exec.Command("firefox", url)
 		} else {
 			return fmt.Errorf("браузер не найден")
